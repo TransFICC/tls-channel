@@ -13,6 +13,7 @@ import org.junit.runner.RunWith
 import org.scalatest.Assertions
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatestplus.junit.JUnitRunner
+import tlschannel.util.ReentrantLock
 
 @RunWith(classOf[JUnitRunner])
 class ApiTest extends AnyFunSuite with Assertions {
@@ -34,7 +35,8 @@ class ApiTest extends AnyFunSuite with Assertions {
       new TrackingAllocator(new HeapBufferAllocator),
       new TrackingAllocator(new HeapBufferAllocator),
       true /* releaseBuffers */,
-      false /* waitForCloseConfirmation */
+      false /* waitForCloseConfirmation */,
+      () => new ReentrantLock()
     )
   }
 

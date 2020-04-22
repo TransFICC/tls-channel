@@ -349,7 +349,8 @@ public class ServerTlsChannel implements TlsChannel {
                 plainBufAllocator,
                 encryptedBufAllocator,
                 releaseBuffers,
-                waitForCloseConfirmation);
+                waitForCloseConfirmation,
+                tlschannel.util.ReentrantLock::new);
         inEncrypted = null;
         sniRead = true;
       }

@@ -9,8 +9,6 @@ import java.nio.channels.ClosedChannelException;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.WritableByteChannel;
 import java.util.Optional;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLEngineResult;
@@ -26,6 +24,8 @@ import tlschannel.NeedsWriteException;
 import tlschannel.TlsChannelCallbackException;
 import tlschannel.TrackingAllocator;
 import tlschannel.WouldBlockException;
+import tlschannel.util.Lock;
+import tlschannel.util.LockFactory;
 import tlschannel.util.Util;
 
 public class TlsChannelImpl implements ByteChannel {
@@ -99,7 +99,8 @@ public class TlsChannelImpl implements ByteChannel {
       TrackingAllocator plainBufAllocator,
       TrackingAllocator encryptedBufAllocator,
       boolean releaseBuffers,
-      boolean waitForCloseConfirmation) {
+      boolean waitForCloseConfirmation,
+      LockFactory lockFactory) {
     // @formatter:on
     this.readChannel = readChannel;
     this.writeChannel = writeChannel;
@@ -138,13 +139,18 @@ public class TlsChannelImpl implements ByteChannel {
             maxTlsPacketSize,
             false /* plainData */,
             releaseBuffers);
+    initLock = lockFactory.newLock();
+    readLock = lockFactory.newLock();
+    writeLock = lockFactory.newLock();
+    wrapResult = new WrapResult();
+    unwrapResult = new UnwrapResult();
   }
 
-  private final Lock initLock = new ReentrantLock();
-  private final Lock readLock = new ReentrantLock();
-  private final Lock writeLock = new ReentrantLock();
-  private final WrapResult wrapResult = new WrapResult();
-  private final UnwrapResult unwrapResult = new UnwrapResult();
+  private final Lock initLock;
+  private final Lock readLock;
+  private final Lock writeLock;
+  private final WrapResult wrapResult;
+  private final UnwrapResult unwrapResult;
   private volatile boolean negotiated = false;
 
   /**

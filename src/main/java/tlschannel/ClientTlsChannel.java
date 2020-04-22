@@ -12,6 +12,7 @@ import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLSession;
 import tlschannel.impl.ByteBufferSet;
 import tlschannel.impl.TlsChannelImpl;
+import tlschannel.util.ReentrantLock;
 
 /** A client-side {@link TlsChannel}. */
 public class ClientTlsChannel implements TlsChannel {
@@ -108,7 +109,8 @@ public class ClientTlsChannel implements TlsChannel {
             trackingPlainBufAllocator,
             trackingEncryptedAllocator,
             releaseBuffers,
-            waitForCloseNotifyOnClose);
+            waitForCloseNotifyOnClose,
+            ReentrantLock::new);
   }
 
   @Override
