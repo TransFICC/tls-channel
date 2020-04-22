@@ -12,6 +12,7 @@ import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLSession;
 import tlschannel.impl.ByteBufferSet;
 import tlschannel.impl.TlsChannelImpl;
+import tlschannel.util.LockFactory;
 import tlschannel.util.ReentrantLock;
 
 /** A client-side {@link TlsChannel}. */
@@ -21,6 +22,7 @@ public class ClientTlsChannel implements TlsChannel {
   public static class Builder extends TlsChannelBuilder<Builder> {
 
     private final Supplier<SSLEngine> sslEngineFactory;
+    private LockFactory lockFactory = ReentrantLock::new;
 
     private Builder(ByteChannel underlying, SSLEngine sslEngine) {
       super(underlying);
@@ -30,6 +32,11 @@ public class ClientTlsChannel implements TlsChannel {
     private Builder(ByteChannel underlying, SSLContext sslContext) {
       super(underlying);
       this.sslEngineFactory = () -> defaultSSLEngineFactory(sslContext);
+    }
+
+    public TlsChannelBuilder<Builder> withLockFactory(LockFactory lockFactory) {
+      this.lockFactory = lockFactory;
+      return this;
     }
 
     @Override
@@ -46,7 +53,8 @@ public class ClientTlsChannel implements TlsChannel {
           plainBufferAllocator,
           encryptedBufferAllocator,
           releaseBuffers,
-          waitForCloseConfirmation);
+          waitForCloseConfirmation,
+          lockFactory);
     }
   }
 
@@ -92,7 +100,8 @@ public class ClientTlsChannel implements TlsChannel {
       BufferAllocator plainBufAllocator,
       BufferAllocator encryptedBufAllocator,
       boolean releaseBuffers,
-      boolean waitForCloseNotifyOnClose) {
+      boolean waitForCloseNotifyOnClose,
+      LockFactory lockFactory) {
     if (!engine.getUseClientMode())
       throw new IllegalArgumentException("SSLEngine must be in client mode");
     this.underlying = underlying;
@@ -110,7 +119,7 @@ public class ClientTlsChannel implements TlsChannel {
             trackingEncryptedAllocator,
             releaseBuffers,
             waitForCloseNotifyOnClose,
-            ReentrantLock::new);
+            lockFactory);
   }
 
   @Override
