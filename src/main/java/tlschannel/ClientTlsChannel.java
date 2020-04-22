@@ -34,7 +34,7 @@ public class ClientTlsChannel implements TlsChannel {
       this.sslEngineFactory = () -> defaultSSLEngineFactory(sslContext);
     }
 
-    public TlsChannelBuilder<Builder> withLockFactory(LockFactory lockFactory) {
+    public Builder withLockFactory(LockFactory lockFactory) {
       this.lockFactory = lockFactory;
       return this;
     }
