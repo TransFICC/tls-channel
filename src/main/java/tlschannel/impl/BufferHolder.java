@@ -1,5 +1,6 @@
 package tlschannel.impl;
 
+import java.nio.Buffer;
 import java.nio.ByteBuffer;
 import java.util.Optional;
 import org.slf4j.Logger;
@@ -34,13 +35,14 @@ public class BufferHolder {
     this.maxSize = maxSize;
     this.plainData = plainData;
     this.opportunisticDispose = opportunisticDispose;
-    this.lastSize = buffer.map(b -> b.capacity()).orElse(initialSize);
+    this.lastSize = buffer.map(Buffer::capacity).orElse(initialSize);
   }
 
-  public void prepare() {
+  public ByteBuffer prepare() {
     if (buffer == null) {
       buffer = allocator.allocate(lastSize);
     }
+    return buffer;
   }
 
   public boolean release() {
