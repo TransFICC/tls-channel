@@ -258,7 +258,7 @@ public class TlsChannelImpl implements ByteChannel {
         switch (handshakeStatus) {
           case NEED_UNWRAP:
           case NEED_WRAP:
-            bytesToReturn = handshake(dest, Optional.of(handshakeStatus));
+            bytesToReturn = handshake(dest, handshakeStatus);
             handshakeStatus = NOT_HANDSHAKING;
             break;
           case NOT_HANDSHAKING:
@@ -570,7 +570,7 @@ public class TlsChannelImpl implements ByteChannel {
       if (force || !negotiated) {
         engine.beginHandshake();
         logger.trace("Called engine.beginHandshake()");
-        handshake(this.inPlainBufferSet, Optional.empty());
+        handshake(this.inPlainBufferSet, null);
         // call client code
         try {
           initSessionCallback.accept(engine.getSession());
@@ -585,7 +585,7 @@ public class TlsChannelImpl implements ByteChannel {
     }
   }
 
-  private int handshake(ByteBufferSet dest, Optional<HandshakeStatus> handshakeStatus)
+  private int handshake(ByteBufferSet dest, HandshakeStatus handshakeStatus)
       throws IOException, EofException {
     readLock.lock();
     try {
@@ -607,10 +607,11 @@ public class TlsChannelImpl implements ByteChannel {
     }
   }
 
-  private int handshakeLoop(ByteBufferSet dest, Optional<HandshakeStatus> handshakeStatus)
+  private int handshakeLoop(ByteBufferSet dest, HandshakeStatus handshakeStatus)
       throws IOException, EofException {
     Util.assertTrue(inPlain.nullOrEmpty());
-    HandshakeStatus status = handshakeStatus.orElseGet(() -> engine.getHandshakeStatus());
+    HandshakeStatus status =
+        handshakeStatus == null ? engine.getHandshakeStatus() : handshakeStatus;
     while (true) {
       switch (status) {
         case NEED_WRAP:
