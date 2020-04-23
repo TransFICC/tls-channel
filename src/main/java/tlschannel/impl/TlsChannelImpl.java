@@ -37,6 +37,8 @@ public class TlsChannelImpl implements ByteChannel {
   /** Official TLS max data size is 2^14 = 16k. Use 1024 more to account for the overhead */
   public static final int maxTlsPacketSize = 17 * 1024;
 
+  private ImmutableSingleBufferSupplierSet inPlainBufferSet;
+
   private static class UnwrapResult {
     public int bytesProduced;
     public HandshakeStatus lastHandshakeStatus;
@@ -130,6 +132,8 @@ public class TlsChannelImpl implements ByteChannel {
             maxTlsPacketSize,
             true /* plainData */,
             releaseBuffers);
+
+    inPlainBufferSet = new ImmutableSingleBufferSupplierSet(() -> inPlain.buffer);
     outEncrypted =
         new BufferHolder(
             "outEncrypted",
@@ -309,7 +313,7 @@ public class TlsChannelImpl implements ByteChannel {
         dest.orElseGet(
             () -> {
               inPlain.prepare();
-              return new ImmutableByteBufferSet(inPlain.buffer);
+              return inPlainBufferSet;
             });
     while (true) {
       Util.assertTrue(inPlain.nullOrEmpty());
@@ -338,7 +342,7 @@ public class TlsChannelImpl implements ByteChannel {
           inPlain.enlarge();
         }
         // inPlain changed, re-create the wrapper
-        effDest = new ImmutableByteBufferSet(inPlain.buffer);
+        effDest = inPlainBufferSet;
       }
     }
   }
@@ -782,6 +786,7 @@ public class TlsChannelImpl implements ByteChannel {
     if (inPlain != null) {
       inPlain.dispose();
       inPlain = null;
+      inPlainBufferSet = null;
     }
     if (outEncrypted != null) {
       outEncrypted.dispose();
