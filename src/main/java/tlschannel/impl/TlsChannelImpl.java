@@ -1,5 +1,7 @@
 package tlschannel.impl;
 
+import static javax.net.ssl.SSLEngineResult.HandshakeStatus.FINISHED;
+import static javax.net.ssl.SSLEngineResult.HandshakeStatus.NEED_UNWRAP;
 import static javax.net.ssl.SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING;
 
 import java.io.IOException;
@@ -160,6 +162,7 @@ public class TlsChannelImpl implements ByteChannel {
   private final WrapResult wrapResult;
   private final UnwrapResult unwrapResult;
   private volatile boolean negotiated = false;
+  private volatile boolean isHandshaking = false;
 
   /**
    * Whether a IOException was received from the underlying channel or from the {@link SSLEngine}.
@@ -198,6 +201,46 @@ public class TlsChannelImpl implements ByteChannel {
 
   public TrackingAllocator getEncryptedBufferAllocator() {
     return encryptedBufAllocator;
+  }
+
+  public int doWorkLoop(final ByteBufferSet dest) {
+    while (true) {
+      final int result = doWork(dest);
+      if (result >= 0) {
+        return result;
+      }
+    }
+  }
+
+  public int doWork(final ByteBufferSet dest) {
+
+    //    if (!explicitHandshake) {
+    //      throw new UnsupportedOperationException("This is only used when handshaking is being
+    // manually invoked");
+    //    }
+    if (negotiated) {
+      return 0;
+    }
+
+    try {
+      if (!isHandshaking) {
+        //        engine.beginHandshake();
+        Util.assertTrue(inPlain.nullOrEmpty());
+        //        outEncrypted.prepare();
+        writeToChannel(); // Is this needed????
+        isHandshaking = true;
+      }
+      final int bytesRead = maybeHandshakeStep(dest);
+
+      if (bytesRead >= 0) {
+        negotiated = true;
+        isHandshaking = false;
+      }
+      return bytesRead;
+
+    } catch (final IOException | EofException e) {
+      throw new IllegalStateException(e);
+    }
   }
 
   // read
@@ -248,7 +291,7 @@ public class TlsChannelImpl implements ByteChannel {
         switch (handshakeStatus) {
           case NEED_UNWRAP:
           case NEED_WRAP:
-            bytesToReturn = handshake(dest, handshakeStatus);
+            bytesToReturn = handshake(dest);
             handshakeStatus = NOT_HANDSHAKING;
             break;
           case NOT_HANDSHAKING:
@@ -568,14 +611,18 @@ public class TlsChannelImpl implements ByteChannel {
   }
 
   private void doHandshake(boolean force) throws IOException, EofException {
-    if (!force && negotiated) return;
+    if (!force && negotiated) {
+      return;
+    }
     initLock.lock();
-    if (invalid || shutdownSent) throw new ClosedChannelException();
+    if (invalid || shutdownSent) {
+      throw new ClosedChannelException();
+    }
     try {
       if (force || !negotiated) {
         engine.beginHandshake();
         logger.trace("Called engine.beginHandshake()");
-        handshake(this.inPlainBufferSet, null);
+        handshake(this.inPlainBufferSet);
         // call client code
         try {
           initSessionCallback.accept(engine.getSession());
@@ -590,8 +637,7 @@ public class TlsChannelImpl implements ByteChannel {
     }
   }
 
-  private int handshake(ByteBufferSet dest, HandshakeStatus handshakeStatus)
-      throws IOException, EofException {
+  private int handshake(ByteBufferSet dest) throws IOException, EofException {
     readLock.lock();
     try {
       writeLock.lock();
@@ -600,7 +646,8 @@ public class TlsChannelImpl implements ByteChannel {
         outEncrypted.prepare();
         try {
           writeToChannel(); // IO block
-          return handshakeLoop(dest, handshakeStatus);
+          //          return doWorkLoop(dest);
+          return handshakeLoop(dest);
         } finally {
           outEncrypted.release();
         }
@@ -612,40 +659,55 @@ public class TlsChannelImpl implements ByteChannel {
     }
   }
 
-  private int handshakeLoop(ByteBufferSet dest, HandshakeStatus handshakeStatus)
-      throws IOException, EofException {
+  private int handshakeLoop(ByteBufferSet dest) throws IOException, EofException {
     Util.assertTrue(inPlain.nullOrEmpty());
-    HandshakeStatus status =
-        handshakeStatus == null ? engine.getHandshakeStatus() : handshakeStatus;
     while (true) {
-      switch (status) {
-        case NEED_WRAP:
-          Util.assertTrue(outEncrypted.nullOrEmpty());
-          WrapResult wrapResult = wrapLoop(dummyOut);
-          status = wrapResult.lastHandshakeStatus;
-          writeToChannel(); // IO block
-          break;
-        case NEED_UNWRAP:
-          UnwrapResult res = readAndUnwrap(dest);
-          status = res.lastHandshakeStatus;
-          if (res.bytesProduced > 0) return res.bytesProduced;
-          break;
-        case NOT_HANDSHAKING:
-          /*
-           * This should not really happen using SSLEngine, because
-           * handshaking ends with a FINISHED status. However, we accept
-           * this value to permit the use of a pass-through stub engine
-           * with no encryption.
-           */
-          return 0;
-        case NEED_TASK:
-          handleTask();
-          status = engine.getHandshakeStatus();
-          break;
-        case FINISHED:
-          return 0;
-      }
+
+      final int bytesRead = maybeHandshakeStep(dest);
+      if (bytesRead >= 0) return bytesRead;
     }
+  }
+
+  private int maybeHandshakeStep(final ByteBufferSet dest) throws IOException, EofException {
+    final HandshakeStatus status = engine.getHandshakeStatus();
+    if (status == FINISHED || status == NOT_HANDSHAKING) {
+      return 0;
+    }
+
+    final HandshakeStatus newStatus = handshakeStep(dest, status);
+
+    if (newStatus == NEED_UNWRAP && unwrapResult.bytesProduced > 0) {
+      return unwrapResult.bytesProduced;
+    }
+    return -2;
+  }
+
+  private HandshakeStatus handshakeStep(final ByteBufferSet dest, final HandshakeStatus status)
+      throws IOException, EofException {
+    switch (status) {
+      case NEED_WRAP:
+        Util.assertTrue(outEncrypted.nullOrEmpty());
+        wrapLoop(dummyOut);
+        writeToChannel(); // IO block
+        break;
+      case NEED_UNWRAP:
+        readAndUnwrap(dest);
+        break;
+      case NOT_HANDSHAKING:
+        /*
+         * This should not really happen using SSLEngine, because
+         * handshaking ends with a FINISHED status. However, we accept
+         * this value to permit the use of a pass-through stub engine
+         * with no encryption.
+         */
+        break;
+      case NEED_TASK:
+        handleTask();
+        break;
+      case FINISHED:
+        break;
+    }
+    return engine.getHandshakeStatus();
   }
 
   private UnwrapResult readAndUnwrap(ByteBufferSet dest) throws IOException, EofException {
@@ -693,9 +755,13 @@ public class TlsChannelImpl implements ByteChannel {
   }
 
   private void tryShutdown() {
-    if (!readLock.tryLock()) return;
+    if (!readLock.tryLock()) {
+      return;
+    }
     try {
-      if (!writeLock.tryLock()) return;
+      if (!writeLock.tryLock()) {
+        return;
+      }
       try {
         if (!shutdownSent) {
           try {
