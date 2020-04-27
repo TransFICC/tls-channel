@@ -18,6 +18,7 @@ import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import tlschannel.NeedsHandshakeException;
 import tlschannel.NeedsReadException;
 import tlschannel.NeedsTaskException;
 import tlschannel.NeedsWriteException;
@@ -77,6 +78,7 @@ public class TlsChannelImpl implements ByteChannel {
   private final ReadableByteChannel readChannel;
   private final WritableByteChannel writeChannel;
   private final SSLEngine engine;
+  private final boolean explicitHandshake;
   private BufferHolder inEncrypted;
   private final Consumer<SSLSession> initSessionCallback;
 
@@ -102,11 +104,13 @@ public class TlsChannelImpl implements ByteChannel {
       TrackingAllocator encryptedBufAllocator,
       boolean releaseBuffers,
       boolean waitForCloseConfirmation,
-      LockFactory lockFactory) {
+      LockFactory lockFactory,
+      boolean explicitHandshake) {
     // @formatter:on
     this.readChannel = readChannel;
     this.writeChannel = writeChannel;
     this.engine = engine;
+    this.explicitHandshake = explicitHandshake;
     this.inEncrypted =
         inEncrypted.orElseGet(
             () ->
@@ -227,6 +231,7 @@ public class TlsChannelImpl implements ByteChannel {
         throw new ClosedChannelException();
       }
       HandshakeStatus handshakeStatus = engine.getHandshakeStatus();
+      throwIfExplicitHandshakeRequired(handshakeStatus);
       int bytesToReturn = inPlain.nullOrEmpty() ? 0 : inPlain.buffer.position();
       while (true) {
         if (bytesToReturn > 0) {
@@ -268,8 +273,19 @@ public class TlsChannelImpl implements ByteChannel {
     }
   }
 
+  private void throwIfExplicitHandshakeRequired(final HandshakeStatus handshakeStatus)
+      throws NeedsHandshakeException {
+    if (handshakeStatus != NOT_HANDSHAKING
+        && handshakeStatus != HandshakeStatus.FINISHED
+        && explicitHandshake) {
+      throw new NeedsHandshakeException();
+    }
+  }
+
   private void handshakeAndReadLock() throws IOException {
-    handshake();
+    if (!explicitHandshake) {
+      handshake();
+    }
     readLock.lock();
   }
 
@@ -401,6 +417,8 @@ public class TlsChannelImpl implements ByteChannel {
       if (invalid || shutdownSent) {
         throw new ClosedChannelException();
       }
+      HandshakeStatus handshakeStatus = engine.getHandshakeStatus();
+      throwIfExplicitHandshakeRequired(handshakeStatus);
       return wrapAndWrite(source);
     } finally {
       writeLock.unlock();
@@ -408,7 +426,9 @@ public class TlsChannelImpl implements ByteChannel {
   }
 
   private void handshakeAndWriteLock() throws IOException {
-    handshake();
+    if (!explicitHandshake) {
+      handshake();
+    }
     writeLock.lock();
   }
 

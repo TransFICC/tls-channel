@@ -34,9 +34,10 @@ class ApiTest extends AnyFunSuite with Assertions {
       true,
       new TrackingAllocator(new HeapBufferAllocator),
       new TrackingAllocator(new HeapBufferAllocator),
-      true /* releaseBuffers */,
-      false /* waitForCloseConfirmation */,
-      () => new ReentrantLock()
+      true,
+      false,
+      () => new ReentrantLock(),
+      false
     )
   }
 

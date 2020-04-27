@@ -126,7 +126,8 @@ public class ClientTlsChannel implements TlsChannel {
             trackingEncryptedAllocator,
             releaseBuffers,
             waitForCloseNotifyOnClose,
-            lockFactory);
+            lockFactory,
+            explicitHandshake);
   }
 
   @Override
