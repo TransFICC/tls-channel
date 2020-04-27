@@ -637,6 +637,89 @@ public class TlsChannelImpl implements ByteChannel {
     }
   }
 
+  private class ExplicitHandshake {
+
+    private final Lock readLock;
+    private final Lock writeLock;
+    private final SSLEngine sslEngine;
+    private boolean handshakeCalled = false;
+    private final ByteBufferSet dummyOut =
+        new ImmutableByteBufferSet(new ByteBuffer[] {ByteBuffer.allocate(0)});
+    private final BufferHolder outEncrypted =
+        new BufferHolder(
+            "outEncrypted",
+            Optional.empty(),
+            encryptedBufAllocator,
+            buffersInitialSize,
+            maxTlsPacketSize,
+            false /* plainData */,
+            true);
+
+    public ExplicitHandshake(final Lock readLock, final Lock writeLock, final SSLEngine sslEngine) {
+      this.readLock = readLock;
+      this.writeLock = writeLock;
+      this.sslEngine = sslEngine;
+    }
+
+    public void handshake() throws SSLException {
+      if (!handshakeCalled) {
+        sslEngine.beginHandshake();
+      }
+      HandshakeStatus handshakeStatus = sslEngine.getHandshakeStatus();
+      switch (handshakeStatus) {
+        case NEED_WRAP:
+          readLock.lock();
+          try {
+            writeLock.lock();
+            try {
+              dummyOut.wrap(engine, outEncrypted.buffer);
+            } finally {
+              writeLock.unlock();
+            }
+          } finally {
+            readLock.unlock();
+          }
+          //          Util.assertTrue(outEncrypted.nullOrEmpty());
+          //          WrapResult wrapResult = wrapLoop(dummyOut);
+          //          status = wrapResult.lastHandshakeStatus;
+          //          writeToChannel(); // IO block
+          break;
+        case NEED_UNWRAP:
+          readLock.lock();
+          try {
+            writeLock.lock();
+            try {
+
+            } finally {
+              writeLock.unlock();
+            }
+          } finally {
+            readLock.unlock();
+          }
+          //          UnwrapResult res = readAndUnwrap(dest);
+          //          status = res.lastHandshakeStatus;
+          //          if (res.bytesProduced > 0) return res.bytesProduced;
+          break;
+        case NOT_HANDSHAKING:
+          /*
+           * This should not really happen using SSLEngine, because
+           * handshaking ends with a FINISHED status. However, we accept
+           * this value to permit the use of a pass-through stub engine
+           * with no encryption.
+           */
+          return;
+        case NEED_TASK:
+          //          handleTask();
+          //          status = engine.getHandshakeStatus();
+          break;
+        case FINISHED:
+          return;
+        default:
+          throw new IllegalStateException("Cannot handle " + handshakeStatus);
+      }
+    }
+  }
+
   private int handshake(ByteBufferSet dest) throws IOException, EofException {
     readLock.lock();
     try {
