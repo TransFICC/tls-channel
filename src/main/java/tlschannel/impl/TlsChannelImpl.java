@@ -37,6 +37,8 @@ public class TlsChannelImpl implements ByteChannel {
   /** Official TLS max data size is 2^14 = 16k. Use 1024 more to account for the overhead */
   public static final int maxTlsPacketSize = 17 * 1024;
 
+  private ImmutableSingleBufferSupplierSet inPlainBufferSet;
+
   private static class UnwrapResult {
     public int bytesProduced;
     public HandshakeStatus lastHandshakeStatus;
@@ -130,6 +132,8 @@ public class TlsChannelImpl implements ByteChannel {
             maxTlsPacketSize,
             true /* plainData */,
             releaseBuffers);
+
+    inPlainBufferSet = new ImmutableSingleBufferSupplierSet(() -> inPlain.prepare());
     outEncrypted =
         new BufferHolder(
             "outEncrypted",
@@ -239,12 +243,12 @@ public class TlsChannelImpl implements ByteChannel {
         switch (handshakeStatus) {
           case NEED_UNWRAP:
           case NEED_WRAP:
-            bytesToReturn = handshake(Optional.of(dest), Optional.of(handshakeStatus));
+            bytesToReturn = handshake(dest, handshakeStatus);
             handshakeStatus = NOT_HANDSHAKING;
             break;
           case NOT_HANDSHAKING:
           case FINISHED:
-            UnwrapResult res = readAndUnwrap(Optional.of(dest));
+            UnwrapResult res = readAndUnwrap(dest);
             if (res.wasClosed) {
               return -1;
             }
@@ -288,14 +292,10 @@ public class TlsChannelImpl implements ByteChannel {
     return bytes;
   }
 
-  private UnwrapResult unwrapLoop(Optional<ByteBufferSet> dest, HandshakeStatus originalStatus)
+  private UnwrapResult unwrapLoop(ByteBufferSet dest, HandshakeStatus originalStatus)
       throws SSLException {
-    ByteBufferSet effDest =
-        dest.orElseGet(
-            () -> {
-              inPlain.prepare();
-              return new ImmutableByteBufferSet(inPlain.buffer);
-            });
+    ByteBufferSet effDest = dest;
+
     while (true) {
       Util.assertTrue(inPlain.nullOrEmpty());
       SSLEngineResult result = callEngineUnwrap(effDest);
@@ -311,20 +311,11 @@ public class TlsChannelImpl implements ByteChannel {
         return unwrapResult.of(result.bytesProduced(), result.getHandshakeStatus(), wasClosed);
       }
       if (result.getStatus() == Status.BUFFER_OVERFLOW) {
-        if (dest.isPresent() && effDest == dest.get()) {
-          /*
-           * The client-supplier buffer is not big enough. Use the
-           * internal inPlain buffer, also ensure that it is bigger
-           * than the too-small supplied one.
-           */
-          inPlain.prepare();
-          ensureInPlainCapacity(Math.min(((int) dest.get().remaining()) * 2, maxTlsPacketSize));
-        } else {
-          inPlain.enlarge();
-        }
-        // inPlain changed, re-create the wrapper
-        effDest = new ImmutableByteBufferSet(inPlain.buffer);
+        inPlain.prepare();
+        ensureInPlainCapacity(Math.min(((int) effDest.remaining()) * 2, maxTlsPacketSize));
       }
+      // inPlain changed, re-create the wrapper
+      effDest = inPlainBufferSet;
     }
   }
 
@@ -564,7 +555,7 @@ public class TlsChannelImpl implements ByteChannel {
       if (force || !negotiated) {
         engine.beginHandshake();
         logger.trace("Called engine.beginHandshake()");
-        handshake(Optional.empty(), Optional.empty());
+        handshake(this.inPlainBufferSet, null);
         // call client code
         try {
           initSessionCallback.accept(engine.getSession());
@@ -579,7 +570,7 @@ public class TlsChannelImpl implements ByteChannel {
     }
   }
 
-  private int handshake(Optional<ByteBufferSet> dest, Optional<HandshakeStatus> handshakeStatus)
+  private int handshake(ByteBufferSet dest, HandshakeStatus handshakeStatus)
       throws IOException, EofException {
     readLock.lock();
     try {
@@ -601,10 +592,11 @@ public class TlsChannelImpl implements ByteChannel {
     }
   }
 
-  private int handshakeLoop(Optional<ByteBufferSet> dest, Optional<HandshakeStatus> handshakeStatus)
+  private int handshakeLoop(ByteBufferSet dest, HandshakeStatus handshakeStatus)
       throws IOException, EofException {
     Util.assertTrue(inPlain.nullOrEmpty());
-    HandshakeStatus status = handshakeStatus.orElseGet(() -> engine.getHandshakeStatus());
+    HandshakeStatus status =
+        handshakeStatus == null ? engine.getHandshakeStatus() : handshakeStatus;
     while (true) {
       switch (status) {
         case NEED_WRAP:
@@ -636,8 +628,7 @@ public class TlsChannelImpl implements ByteChannel {
     }
   }
 
-  private UnwrapResult readAndUnwrap(Optional<ByteBufferSet> dest)
-      throws IOException, EofException {
+  private UnwrapResult readAndUnwrap(ByteBufferSet dest) throws IOException, EofException {
     // Save status before operation: use it to stop when status changes
     HandshakeStatus orig = engine.getHandshakeStatus();
     inEncrypted.prepare();
@@ -743,7 +734,7 @@ public class TlsChannelImpl implements ByteChannel {
         if (!shutdownReceived) {
           try {
             // IO block
-            readAndUnwrap(Optional.empty());
+            readAndUnwrap(this.inPlainBufferSet);
             Util.assertTrue(shutdownReceived);
           } catch (EofException e) {
             throw new ClosedChannelException();
@@ -767,6 +758,7 @@ public class TlsChannelImpl implements ByteChannel {
     if (inPlain != null) {
       inPlain.dispose();
       inPlain = null;
+      inPlainBufferSet = null;
     }
     if (outEncrypted != null) {
       outEncrypted.dispose();
