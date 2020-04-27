@@ -22,6 +22,7 @@ public class ClientTlsChannel implements TlsChannel {
 
     private final Supplier<SSLEngine> sslEngineFactory;
     private LockFactory lockFactory = ReentrantLock::new;
+    private boolean explicitHandshake = false;
 
     private Builder(ByteChannel underlying, SSLEngine sslEngine) {
       super(underlying);
@@ -35,6 +36,11 @@ public class ClientTlsChannel implements TlsChannel {
 
     public Builder withLockFactory(LockFactory lockFactory) {
       this.lockFactory = lockFactory;
+      return this;
+    }
+
+    public Builder withExplicitHandshakePhase() {
+      this.explicitHandshake = true;
       return this;
     }
 
@@ -53,7 +59,8 @@ public class ClientTlsChannel implements TlsChannel {
           encryptedBufferAllocator,
           releaseBuffers,
           waitForCloseConfirmation,
-          lockFactory);
+          lockFactory,
+          explicitHandshake);
     }
   }
 
@@ -100,7 +107,8 @@ public class ClientTlsChannel implements TlsChannel {
       BufferAllocator encryptedBufAllocator,
       boolean releaseBuffers,
       boolean waitForCloseNotifyOnClose,
-      LockFactory lockFactory) {
+      LockFactory lockFactory,
+      final boolean explicitHandshake) {
     if (!engine.getUseClientMode())
       throw new IllegalArgumentException("SSLEngine must be in client mode");
     this.underlying = underlying;
