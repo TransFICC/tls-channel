@@ -337,6 +337,11 @@ public class ServerTlsChannel implements TlsChannel {
   }
 
   @Override
+  public void doWork() {
+    throw new UnsupportedOperationException("Not implemented yet");
+  }
+
+  @Override
   public void close() throws IOException {
     if (impl != null) impl.close();
     if (inEncrypted != null) inEncrypted.dispose();

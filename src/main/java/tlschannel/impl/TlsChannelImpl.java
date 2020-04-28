@@ -203,6 +203,20 @@ public class TlsChannelImpl implements ByteChannel {
     return encryptedBufAllocator;
   }
 
+  public int doWork() {
+    if (!explicitHandshake) {
+      throw new IllegalStateException("This is only allowed if you are handshaking manually");
+    }
+    if (negotiated) {
+      return 0;
+    }
+    try {
+      return doHandshake(this.inPlainBufferSet, false);
+    } catch (IOException | EofException e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
   private int handshakeLoop(final ByteBufferSet dest, final boolean force)
       throws IOException, EofException {
 
@@ -217,10 +231,6 @@ public class TlsChannelImpl implements ByteChannel {
 
   private int doHandshake(final ByteBufferSet dest, final boolean force)
       throws IOException, EofException {
-
-    //    if (negotiated) {
-    //      return 0;
-    //    }
 
     readLock.lock();
     try {
