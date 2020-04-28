@@ -231,22 +231,22 @@ public class TlsChannelImpl implements ByteChannel {
       //      return 0;
       //    }
       if (!isHandshaking) {
-          if (force || !negotiated) {
-            logger.trace("Called engine.beginHandshake()");
-            engine.beginHandshake();
-          }
-
-          Util.assertTrue(inPlain.nullOrEmpty());
-          writeToChannel(); // Is this needed????
-          isHandshaking = true;
+        if (force || !negotiated) {
+          logger.trace("Called engine.beginHandshake()");
+          engine.beginHandshake();
         }
+
+        Util.assertTrue(inPlain.nullOrEmpty());
+        writeToChannel(); // Is this needed????
+        isHandshaking = true;
+      }
       int bytesRead = maybeHandshakeStep(dest);
 
-        if (bytesRead >= 0) {
-          negotiated = true;
-          isHandshaking = false;
-        }
-        return bytesRead;
+      if (bytesRead >= 0) {
+        negotiated = true;
+        isHandshaking = false;
+      }
+      return bytesRead;
 
     } finally {
       outEncrypted.release();
