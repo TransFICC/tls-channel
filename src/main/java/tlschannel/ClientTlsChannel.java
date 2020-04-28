@@ -201,6 +201,11 @@ public class ClientTlsChannel implements TlsChannel {
   }
 
   @Override
+  public int doWork() {
+    return impl.doWork();
+  }
+
+  @Override
   public void close() throws IOException {
     impl.close();
   }

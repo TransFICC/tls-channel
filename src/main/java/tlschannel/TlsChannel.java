@@ -246,6 +246,8 @@ public interface TlsChannel extends ByteChannel, GatheringByteChannel, Scatterin
    */
   void handshake() throws IOException;
 
+  int doWork();
+
   /**
    * Writes a sequence of bytesProduced to this channel from a subsequence of the given buffers.
    *
