@@ -203,53 +203,57 @@ public class TlsChannelImpl implements ByteChannel {
     return encryptedBufAllocator;
   }
 
-  public int doWorkLoop(final ByteBufferSet dest, final boolean force)
+  public int handshakeLoop(final ByteBufferSet dest, final boolean force)
       throws IOException, EofException {
 
-    try {
-      int result = doWork(dest, force);
-      while (true) {
-        if (result >= 0) {
-          return result;
-        }
-        result = doWork(dest, false);
+    int result = doWork(dest, force);
+    while (true) {
+      if (result >= 0) {
+        return result;
       }
-    } finally {
-
+      result = doWork(dest, false);
     }
   }
 
   public int doWork(final ByteBufferSet dest, final boolean force)
       throws IOException, EofException {
-    outEncrypted.prepare();
+
+    //    if (negotiated) {
+    //      return 0;
+    //    }
+
+    readLock.lock();
     try {
-      //    if (!explicitHandshake) {
-      //      throw new UnsupportedOperationException("This is only used when handshaking is being
-      // manually invoked");
-      //    }
-      //    if (negotiated) {
-      //      return 0;
-      //    }
-      if (!isHandshaking) {
-        if (force || !negotiated) {
-          logger.trace("Called engine.beginHandshake()");
-          engine.beginHandshake();
+      writeLock.lock();
+      try {
+        outEncrypted.prepare();
+        try {
+          if (!isHandshaking) {
+            if (force || !negotiated) {
+              logger.trace("Called engine.beginHandshake()");
+              engine.beginHandshake();
+            }
+
+            Util.assertTrue(inPlain.nullOrEmpty());
+            writeToChannel(); // Is this needed????
+            isHandshaking = true;
+          }
+          int bytesRead = maybeHandshakeStep(dest);
+
+          if (bytesRead >= 0) {
+            negotiated = true;
+            isHandshaking = false;
+          }
+          return bytesRead;
+
+        } finally {
+          outEncrypted.release();
         }
-
-        Util.assertTrue(inPlain.nullOrEmpty());
-        writeToChannel(); // Is this needed????
-        isHandshaking = true;
+      } finally {
+        writeLock.unlock();
       }
-      int bytesRead = maybeHandshakeStep(dest);
-
-      if (bytesRead >= 0) {
-        negotiated = true;
-        isHandshaking = false;
-      }
-      return bytesRead;
-
     } finally {
-      outEncrypted.release();
+      readLock.unlock();
     }
   }
 
@@ -301,7 +305,7 @@ public class TlsChannelImpl implements ByteChannel {
         switch (handshakeStatus) {
           case NEED_UNWRAP:
           case NEED_WRAP:
-            bytesToReturn = handshake(dest, false);
+            bytesToReturn = handshakeLoop(dest, false);
             handshakeStatus = NOT_HANDSHAKING;
             break;
           case NOT_HANDSHAKING:
@@ -630,8 +634,7 @@ public class TlsChannelImpl implements ByteChannel {
     }
     try {
       if (force || !negotiated) {
-        //                engine.beginHandshake();
-        handshake(this.inPlainBufferSet, force);
+        handshakeLoop(this.inPlainBufferSet, force);
         // call client code
         try {
           initSessionCallback.accept(engine.getSession());
@@ -643,30 +646,6 @@ public class TlsChannelImpl implements ByteChannel {
       }
     } finally {
       initLock.unlock();
-    }
-  }
-
-  private int handshake(ByteBufferSet dest, final boolean force) throws IOException, EofException {
-
-    readLock.lock();
-    try {
-      writeLock.lock();
-      try {
-        return doWorkLoop(dest, force);
-      } finally {
-        writeLock.unlock();
-      }
-    } finally {
-      readLock.unlock();
-    }
-  }
-
-  private int handshakeLoop(ByteBufferSet dest) throws IOException, EofException {
-    Util.assertTrue(inPlain.nullOrEmpty());
-    while (true) {
-
-      final int bytesRead = maybeHandshakeStep(dest);
-      if (bytesRead >= 0) return bytesRead;
     }
   }
 
