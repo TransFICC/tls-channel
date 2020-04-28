@@ -203,19 +203,19 @@ public class TlsChannelImpl implements ByteChannel {
     return encryptedBufAllocator;
   }
 
-  public int handshakeLoop(final ByteBufferSet dest, final boolean force)
+  private int handshakeLoop(final ByteBufferSet dest, final boolean force)
       throws IOException, EofException {
 
-    int result = doWork(dest, force);
+    int result = doHandshake(dest, force);
     while (true) {
       if (result >= 0) {
         return result;
       }
-      result = doWork(dest, false);
+      result = doHandshake(dest, false);
     }
   }
 
-  public int doWork(final ByteBufferSet dest, final boolean force)
+  private int doHandshake(final ByteBufferSet dest, final boolean force)
       throws IOException, EofException {
 
     //    if (negotiated) {
@@ -605,7 +605,7 @@ public class TlsChannelImpl implements ByteChannel {
       throw new SSLException("renegotiation not supported in TLS 1.3 or latter");
     }
     try {
-      doHandshake(true /* force */);
+      doHandshakeLoop(true /* force */);
     } catch (EofException e) {
       throw new ClosedChannelException();
     }
@@ -618,13 +618,13 @@ public class TlsChannelImpl implements ByteChannel {
    */
   public void handshake() throws IOException {
     try {
-      doHandshake(false /* force */);
+      doHandshakeLoop(false /* force */);
     } catch (EofException e) {
       throw new ClosedChannelException();
     }
   }
 
-  private void doHandshake(boolean force) throws IOException, EofException {
+  private void doHandshakeLoop(boolean force) throws IOException, EofException {
     if (!force && negotiated) {
       return;
     }
