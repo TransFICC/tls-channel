@@ -384,6 +384,7 @@ public class TlsChannelImpl implements ByteChannel {
   private UnwrapResult unwrapLoop(ByteBufferSet dest, HandshakeStatus originalStatus)
       throws SSLException {
     ByteBufferSet effDest = dest;
+    int bytesProduced = 0;
 
     while (true) {
       Util.assertTrue(inPlain.nullOrEmpty());
@@ -392,19 +393,21 @@ public class TlsChannelImpl implements ByteChannel {
        * Note that data can be returned even in case of overflow, in that
        * case, just return the data.
        */
-      if (result.bytesProduced() > 0
+      bytesProduced += result.bytesProduced();
+      if (inEncrypted.buffer.position() == 0
+          || (result.getStatus() == Status.BUFFER_OVERFLOW && bytesProduced > 0)
           || result.getStatus() == Status.BUFFER_UNDERFLOW
           || result.getStatus() == Status.CLOSED
           || result.getHandshakeStatus() != originalStatus) {
         boolean wasClosed = result.getStatus() == Status.CLOSED;
-        return unwrapResult.of(result.bytesProduced(), result.getHandshakeStatus(), wasClosed);
+        return unwrapResult.of(bytesProduced, result.getHandshakeStatus(), wasClosed);
       }
       if (result.getStatus() == Status.BUFFER_OVERFLOW) {
         inPlain.prepare();
         ensureInPlainCapacity(Math.min(((int) effDest.remaining()) * 2, maxTlsPacketSize));
+        // inPlain changed, re-create the wrapper
+        effDest = inPlainBufferSet;
       }
-      // inPlain changed, re-create the wrapper
-      effDest = inPlainBufferSet;
     }
   }
 
@@ -715,6 +718,7 @@ public class TlsChannelImpl implements ByteChannel {
       while (true) {
         Util.assertTrue(inPlain.nullOrEmpty());
         UnwrapResult res = unwrapLoop(dest, orig);
+
         if (res.bytesProduced > 0 || res.lastHandshakeStatus != orig || res.wasClosed) {
           if (res.wasClosed) {
             shutdownReceived = true;
