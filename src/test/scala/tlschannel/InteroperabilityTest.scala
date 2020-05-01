@@ -180,7 +180,14 @@ object InteroperabilityTest {
   }
 
   class ByteChannelReader(socket: ByteChannel) extends Reader {
-    def read(array: Array[Byte], offset: Int, length: Int) = socket.read(ByteBuffer.wrap(array, offset, length))
+    def read(array: Array[Byte], offset: Int, length: Int) = {
+      val buffer = ByteBuffer.wrap(array, offset, length)
+      try {
+        socket.read(buffer)
+      } catch {
+        case _: NeedsReadException => buffer.position() - offset
+      }
+    }
     def close() = socket.close()
   }
 

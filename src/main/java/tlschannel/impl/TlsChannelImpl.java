@@ -366,13 +366,17 @@ public class TlsChannelImpl implements ByteChannel {
     }
   }
 
-  private int transferPendingPlain(ByteBufferSet dstBuffers) {
+  private int transferPendingPlain(ByteBufferSet dstBuffers) throws NeedsReadException {
     inPlain.buffer.flip(); // will read
     int bytes = dstBuffers.putRemaining(inPlain.buffer);
     inPlain.buffer.compact(); // will write
+    final boolean moreDataRemaining = inPlain.buffer.position() != 0;
     boolean disposed = inPlain.release();
     if (!disposed) {
       inPlain.zeroRemaining();
+    }
+    if (moreDataRemaining) {
+      throw new NeedsReadException();
     }
     return bytes;
   }
